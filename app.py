@@ -77,8 +77,8 @@ def render_sidebar():
         st.subheader("模型配置")
         provider = st.selectbox(
             "选择模型提供商",
-            ["qwen", "glm", "ollama"],
-            index=["qwen", "glm", "ollama"].index(MODEL_PROVIDER) if MODEL_PROVIDER in ["qwen", "glm", "ollama"] else 0
+            ["minimax", "qwen", "glm", "ollama"],
+            index=["minimax", "qwen", "glm", "ollama"].index(MODEL_PROVIDER) if MODEL_PROVIDER in ["minimax", "qwen", "glm", "ollama"] else 0
         )
 
         if provider == "ollama":

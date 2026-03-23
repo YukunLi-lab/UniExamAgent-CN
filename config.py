@@ -1,6 +1,6 @@
 """
 UniExamAgent-CN 配置模块
-支持 Qwen / GLM / Ollama / OpenAI 模型
+支持 MiniMax / Qwen / GLM / Ollama / OpenAI 模型
 """
 
 import os
@@ -24,8 +24,20 @@ CHROMA_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ==================== 模型配置 ====================
-# 可选: "qwen", "glm", "ollama", "openai"
-MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "qwen")
+# 可选: "minimax", "qwen", "glm", "ollama", "openai"
+MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "minimax")
+
+# ==================== MiniMax 海螺AI ====================
+MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
+MINIMAX_BASE_URL = os.getenv(
+    "MINIMAX_BASE_URL",
+    "https://api.minimax.chat/v"
+)
+MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-Text-01")
+# MiniMax 支持的模型:
+# - MiniMax-Text-01 (默认，高性能)
+# - abab6.5s-chat (高速)
+# - abab6.5-chat (均衡)
 
 # ==================== 阿里云通义千问 ====================
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
@@ -75,7 +87,14 @@ LOG_FILE = BASE_DIR / "app.log"
 # ==================== Helper Functions ====================
 def get_llm_config() -> dict:
     """获取当前配置的 LLM 参数"""
-    if MODEL_PROVIDER == "qwen" and QWEN_API_KEY:
+    if MODEL_PROVIDER == "minimax" and MINIMAX_API_KEY:
+        return {
+            "provider": "minimax",
+            "api_key": MINIMAX_API_KEY,
+            "base_url": MINIMAX_BASE_URL,
+            "model": MINIMAX_MODEL,
+        }
+    elif MODEL_PROVIDER == "qwen" and QWEN_API_KEY:
         return {
             "provider": "qwen",
             "api_key": QWEN_API_KEY,

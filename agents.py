@@ -40,7 +40,15 @@ def get_llm(temperature: float = 0.7) -> ChatOpenAI:
     """获取 LLM 实例"""
     config = get_llm_config()
 
-    if config["provider"] == "qwen":
+    if config["provider"] == "minimax":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            api_key=config["api_key"],
+            base_url=config["base_url"],
+            model=config["model"],
+            temperature=temperature
+        )
+    elif config["provider"] == "qwen":
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             api_key=config["api_key"],

@@ -97,7 +97,12 @@ UniExamAgent-CN/
 
 ```python
 # 支持的模型选择
-MODEL_PROVIDER = "qwen"  # qwen | glm | ollama | openai
+MODEL_PROVIDER = "minimax"  # minimax | qwen | glm | ollama | openai
+
+# MiniMax 海螺AI
+MINIMAX_API_KEY = "your-minimax-api-key"
+MINIMAX_BASE_URL = "https://api.minimax.chat/v"
+MINIMAX_MODEL = "MiniMax-Text-01"
 
 # 阿里云通义千问
 QWEN_API_KEY = "your-qwen-api-key"
