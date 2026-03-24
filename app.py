@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import List
 
 import streamlit as st
-from streamlit_antd_components import progress, message
 from loguru import logger
 
 from config import (
@@ -37,7 +36,6 @@ st.markdown("""
     .stDeployButton {display:none;}
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    .stActionButton {display:none;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -62,6 +60,14 @@ def init_session_state():
 
     if "coverage_rate" not in st.session_state:
         st.session_state.coverage_rate = 0
+
+    # 高级选项默认值
+    if "num_papers" not in st.session_state:
+        st.session_state.num_papers = 5
+    if "coverage_threshold" not in st.session_state:
+        st.session_state.coverage_threshold = 0.98
+    if "temperature" not in st.session_state:
+        st.session_state.temperature = 0.8
 
 
 init_session_state()
@@ -94,19 +100,34 @@ def render_sidebar():
                 st.write(f"- {source}: {count}")
 
         # 清空知识库按钮
-        if st.button("🗑️ 清空知识库", use_container_width=True):
+        if st.button("🗑️ 清空知识库", key="btn_clear_kb", use_container_width=True):
             st.session_state.kb.clear()
             st.session_state.papers_generated = False
+            # 同时清空上传目录
+            for f in UPLOAD_DIR.glob("*"):
+                f.unlink()
             st.success("知识库已清空！")
             st.rerun()
 
         # 高级选项
         with st.expander("🔧 高级选项"):
-            num_papers = st.slider("生成试卷数量", 3, 10, 5)
-            coverage_threshold = st.slider("覆盖率阈值", 0.90, 1.0, 0.98)
-            temperature = st.slider("生成温度", 0.5, 1.0, 0.8)
+            num_papers = st.slider(
+                "生成试卷数量", 3, 10,
+                key="num_papers_slider"
+            )
+            coverage_threshold = st.slider(
+                "覆盖率阈值", 0.90, 1.0, 0.98, step=0.01,
+                key="coverage_threshold_slider"
+            )
+            temperature = st.slider(
+                "生成温度", 0.5, 1.0, 0.8, step=0.05,
+                key="temperature_slider"
+            )
+            st.session_state.num_papers = num_papers
+            st.session_state.coverage_threshold = coverage_threshold
+            st.session_state.temperature = temperature
 
-        return num_papers, coverage_threshold
+        return st.session_state.num_papers, st.session_state.coverage_threshold
 
 
 # ==================== 主页面 ====================
@@ -148,7 +169,7 @@ def render_upload_section():
         university = st.text_input("学校名称", placeholder="如：清华大学")
         course_name = st.text_input("课程名称", placeholder="如：高等数学")
 
-        if st.button("🔍 开始爬取", use_container_width=True):
+        if st.button("🔍 开始爬取", key="btn_crawl", use_container_width=True):
             if not course_name:
                 st.error("请输入课程名称")
             else:
@@ -169,10 +190,10 @@ def render_knowledge_section():
     """渲染知识库预览"""
     st.header("📚 知识库预览")
 
-    if st.button("🔄 更新知识库", use_container_width=True):
+    if st.button("🔄 更新知识库", key="btn_update_kb", use_container_width=True):
         with st.spinner("正在处理..."):
             try:
-                st.session_state.kb.add_files_from_dir(UPLOAD_DIR)
+                st.session_state.kb.add_files_from_dir(UPLOAD_DIR, replace=True)
                 st.session_state.kb.build()
                 st.success("知识库更新完成！")
                 st.rerun()
@@ -225,6 +246,7 @@ def render_generation_section(exam_spec: str, num_papers: int, coverage_threshol
     with col1:
         generate_btn = st.button(
             "🚀 一键生成 5 套模拟卷",
+            key="btn_generate",
             use_container_width=True,
             type="primary"
         )
@@ -322,7 +344,7 @@ def render_download_section():
     # 下载按钮
     st.divider()
 
-    if st.button("📦 打包下载全部试卷", use_container_width=True, type="primary"):
+    if st.button("📦 打包下载全部试卷", key="btn_download", use_container_width=True, type="primary"):
         with st.spinner("正在打包..."):
             try:
                 generator = MockPaperGenerator(

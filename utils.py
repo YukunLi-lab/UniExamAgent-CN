@@ -17,6 +17,8 @@ from bs4 import BeautifulSoup
 from loguru import logger
 from tqdm import tqdm
 
+from ocr_corrector import correct_ocr_formulas
+
 # ==================== 文件处理 ====================
 class FileProcessor:
     """多格式文件处理器"""
@@ -43,7 +45,11 @@ class FileProcessor:
             return ""
 
         try:
-            return processor(file_path)
+            text = processor(file_path)
+            # 对图片/PDF 的 OCR 结果进行公式纠错
+            if suffix in [".jpg", ".png", ".jpeg", ".pdf"]:
+                text = correct_ocr_formulas(text, wrap=True)
+            return text
         except Exception as e:
             logger.error(f"处理文件失败 {file_path}: {e}")
             return ""
@@ -79,19 +85,114 @@ class FileProcessor:
 
     @staticmethod
     def _extract_from_pdf(pdf_path: Path) -> str:
-        """从 PDF 提取文本"""
+        """从 PDF 提取文本（含 OCR 图片化页面）"""
         import pdfplumber
+        import pytesseract
+        from PIL import Image
+        import pypdfium2 as pdfium
 
         texts = []
 
+        # 先尝试用 pdfplumber 提取文字
         with pdfplumber.open(pdf_path) as pdf:
+            page_count = len(pdf.pages)
+
             for page_num, page in enumerate(pdf.pages, 1):
                 text = page.extract_text()
-                if text:
+                if text and len(text.strip()) > 10:
                     texts.append(f"[第 {page_num} 页]\n{text}")
+                else:
+                    # 页面文字少或为空，可能是扫描版，进行 OCR
+                    logger.info(f"第 {page_num} 页文字少，使用 OCR 提取...")
+                    ocr_text = FileProcessor._ocr_pdf_page(pdf_path, page_num - 1)
+                    if ocr_text:
+                        texts.append(f"[第 {page_num} 页 - OCR]\n{ocr_text}")
 
-        logger.info(f"从 PDF 提取 {len(pdf.pages)} 页")
+        # 如果 pdfplumber 提取的文字太少，尝试全页 OCR
+        total_text = "\n\n".join(texts)
+        if len(total_text.strip()) < 100:
+            logger.info("pdfplumber 提取文字过少，尝试全页 OCR...")
+            full_ocr_text = FileProcessor._ocr_entire_pdf(pdf_path)
+            if full_ocr_text:
+                texts = [f"[全文档 OCR]\n{full_ocr_text}"]
+
+        logger.info(f"从 PDF 提取 {page_count} 页")
         return "\n\n".join(texts)
+
+    @staticmethod
+    def _ocr_pdf_page(pdf_path: Path, page_index: int) -> str:
+        """对 PDF 单页进行 OCR"""
+        import pypdfium2 as pdfium
+        import pytesseract
+        import easyocr
+        import numpy as np
+        from PIL import Image
+        import io
+
+        try:
+            pdf = pdfium.PdfDocument(str(pdf_path))
+            page = pdf[page_index]
+            pil_image = page.render(scale=2).to_pil()
+            img_array = np.array(pil_image)
+
+            # 优先尝试 Tesseract OCR
+            try:
+                text = pytesseract.image_to_string(pil_image, lang="chi_sim+eng")
+                if text and len(text.strip()) > 5:
+                    logger.info(f"页面 {page_index + 1} OCR (Tesseract) 提取 {len(text)} 字符")
+                    return text
+            except Exception as e:
+                logger.warning(f"Tesseract OCR 失败: {e}")
+
+            # 备用 EasyOCR
+            try:
+                reader = easyocr.Reader(["ch_sim", "en"], verbose=False)
+                results = reader.readtext(img_array)
+                text = "\n".join([r[1] for r in results if r[2] > 0.3])
+                if text and len(text.strip()) > 5:
+                    logger.info(f"页面 {page_index + 1} OCR (EasyOCR) 提取 {len(text)} 字符")
+                    return text
+            except Exception as e:
+                logger.warning(f"EasyOCR 失败: {e}")
+
+        except Exception as e:
+            logger.warning(f"页面 OCR 失败: {e}")
+        return ""
+
+    @staticmethod
+    def _ocr_entire_pdf(pdf_path: Path) -> str:
+        """对整个 PDF 进行 OCR（备选方案）"""
+        import pypdfium2 as pdfium
+        import easyocr
+        import numpy as np
+        from PIL import Image
+
+        try:
+            pdf = pdfium.PdfDocument(str(pdf_path))
+            all_texts = []
+
+            # 使用 EasyOCR（支持中文+英文）
+            reader = easyocr.Reader(["ch_sim", "en"], verbose=False)
+
+            for page_num in range(len(pdf)):
+                page = pdf[page_num]
+                pil_image = page.render(scale=2).to_pil()
+                img_array = np.array(pil_image)
+
+                try:
+                    results = reader.readtext(img_array)
+                    text = "\n".join([r[1] for r in results if r[2] > 0.3])
+                    if text and len(text.strip()) > 5:
+                        all_texts.append(f"[第 {page_num + 1} 页]\n{text}")
+                except Exception as e:
+                    logger.warning(f"页面 {page_num + 1} OCR 失败: {e}")
+
+            if all_texts:
+                logger.info(f"全文档 OCR 提取 {len(pdf)} 页，共 {len(all_texts)} 页有文字")
+                return "\n\n".join(all_texts)
+        except Exception as e:
+            logger.warning(f"全文档 OCR 失败: {e}")
+        return ""
 
     @staticmethod
     def _extract_from_txt(txt_path: Path) -> str:
@@ -102,17 +203,32 @@ class FileProcessor:
     @staticmethod
     def _extract_from_image(image_path: Path) -> str:
         """从图片 OCR 提取文本"""
-        import pytesseract
         from PIL import Image
 
+        # 优先尝试 Tesseract OCR
         try:
+            import pytesseract
             img = Image.open(image_path)
             text = pytesseract.image_to_string(img, lang="chi_sim+eng")
-            logger.info(f"从图片 OCR 提取文本，长度: {len(text)}")
-            return text
+            if text and len(text.strip()) > 5:
+                logger.info(f"图片 OCR (Tesseract) 提取 {len(text)} 字符")
+                return text
         except Exception as e:
-            logger.error(f"OCR 失败 {image_path}: {e}")
-            return ""
+            logger.warning(f"Tesseract OCR 失败: {e}")
+
+        # 备用 EasyOCR
+        try:
+            import easyocr
+            reader = easyocr.Reader(["ch_sim", "en"], verbose=False)
+            results = reader.readtext(str(image_path))
+            text = "\n".join([r[1] for r in results if r[2] > 0.3])
+            if text and len(text.strip()) > 5:
+                logger.info(f"图片 OCR (EasyOCR) 提取 {len(text)} 字符")
+                return text
+        except Exception as e:
+            logger.warning(f"EasyOCR 失败: {e}")
+
+        return ""
 
     @staticmethod
     def process_uploaded_files(upload_dir: Path) -> List[Dict[str, Any]]:
